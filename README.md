@@ -9,7 +9,7 @@ A worker pool for bun,nodejs,browser,deno..run cpu intensive tasks in parallel.
 
 ## usage
 ```js
-  import Pqueue from "./queue";
+  import Pqueue from "@pouchlab/worker-pool";
 
 let p = new Pqueue({numWorkers:5})
 
