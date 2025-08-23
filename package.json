@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "@pouchlab/worker-pool",
   "description": "A worker pool for bun,nodejs,browser,deno..run cpu intensive tasks in parallel",
   "module": "./src/index.ts",
@@ -37,7 +37,8 @@
   },
   "repository": {
     "type": "github",
-    "url": "https://github.com/pouchlabs/pquee"
+    "url": "https://github.com/pouchlabs/pqueue"
   },
-  "homepage": "https://github.com/pouchlabs/pquee"
+  "homepage": "https://github.com/pouchlabs/pqueue/blob/main/README.md",
+  "keywords": ["worker","worker-pool","queue","parallel","async","worker-threads","bun","nodejs","deno","browser"]
 }
