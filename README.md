@@ -22,7 +22,6 @@ p.addJob({id: "one",delay:0,fn:async function (){
 // }})   
 // }  
 
-p.start()
 p.addJob({id: "one2",delay:0,fn: async function (){
   return {mm:"h" }  
 }}) 
@@ -35,6 +34,11 @@ p.addJob({id: "one2",delay:0,fn: async function (){
 //listens for failed jobs
 p.onError((e)=>console.log(e))
 
+//run failed jobs
+p.runFailedJobs()
+
+//clear all completed jobs to free memory
+console.log(await p.clear())
 ```
 # support
 support the development of this project,financial and code contribution are welcomed.

@@ -1,7 +1,13 @@
 // oxlint-disable no-eval
-import { QueueEmitter} from "./queue";
+import EventEmitter from "eventemitter3";
 import { Json } from "@pouchlab/core-utils";
-import  type { Job } from "./queue";
+interface Job {
+   id:string,
+   fn:Function,
+   status: "stopped" | "running" | "completed" | "failed",
+   delay: number
+}
+const QueueEmitter = new EventEmitter();
 
 const ctx: Worker = self as any;
 let jobs_count = 0
@@ -72,3 +78,4 @@ ctx.onmessage = async (msg) => {
 ctx.postMessage({msg:"count",num:jobs_count,wrk_id:j?.wrkid});
  QueueEmitter.emit("scheduled_job",j)
 }
+export default ctx

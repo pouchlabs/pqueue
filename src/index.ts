@@ -1,5 +1,4 @@
-import  Pqueue from "./queue";
-
+import  Pqueue from "./queue.ts";
 export {
     Pqueue
 }

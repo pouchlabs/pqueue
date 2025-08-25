@@ -1,6 +1,7 @@
 import Pqueue from "./queue";
 
 let p = new Pqueue({numWorkers:5})
+let p2 = new Pqueue({numWorkers:3})
 
 p.addJob({id: "one",delay:0,fn:async function (){
   return {mm:"h" }   
@@ -11,12 +12,14 @@ p.addJob({id: "one",delay:0,fn:async function (){
 // }})   
 // }  
 
-p.start()
+//p.start()
 p.addJob({id: "one2",delay:0,fn:async function (){
-  return b//{mm:"h" }  
+  return {mm:"h" }   
 }}) 
     
- p.onCompleted((d)=>{console.log(d,"g")})
-
-  p.workers.onError(er=>console.log(er,"er"))   
-
+ p.onCompleted((d)=>{console.log(d,"g")}) 
+ p2.onCompleted((d)=>{console.log(d,"p2")}) 
+p.runFailedJobs()
+console.log(await p.clear())
+  //p.workers.onError(er=>console.log(er,"er"))   
+ 

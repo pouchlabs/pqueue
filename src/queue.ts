@@ -1,10 +1,9 @@
-import { Worker } from "./worker-import";
+import { Worker } from "./worker-import.ts";
 import { Json,checktype,genListByRange } from "@pouchlab/core-utils"; 
 import EventEmitter from "eventemitter3";
-export const QueueEmitter = new EventEmitter()
+
 
 export interface QueueOptions {
-    delay?: number;
     numWorkers?:number
 }
 export interface WorkerInstance {
@@ -24,12 +23,90 @@ export interface JobType {
   fn:Function,
   delay: number
 }
-export  function spawnWorkers(num:number,...wrks: undefined[]){
+function genWorkerUrl(){
+ 
+// "Server response", used in all examples
+var response = `
+import EventEmitter from "eventemitter3";
+import { Json } from "@pouchlab/core-utils";
+var QueueEmitter = new EventEmitter;
+var ctx = self;
+var jobs_count = 0;
+async function scheduleJob(job) {
+  try {
+    let func = job.fn;
+    if (func && func.then || func.catch || func instanceof Promise) {
+      const completed = await func.call(this);
+      jobs_count = jobs_count - 1;
+      ctx.postMessage({ msg: "count", num: jobs_count, wrk_id: job?.wrkid });
+      let timmer = setTimeout(() => {
+        ctx.postMessage({
+          iserror: false,
+          msg: completed?.status || "completed",
+          error: null,
+          data: completed || null,
+          id: job.id
+        });
+        clearTimeout(timmer);
+      }, job.delay || 0);
+    } else {
+      let data = await func();
+      jobs_count = jobs_count - 1;
+      ctx.postMessage({ msg: "count", num: jobs_count, wrk_id: job?.wrkid });
+      let timmer = setTimeout(() => {
+        ctx.postMessage({
+          iserror: false,
+          msg: data?.status || "completed",
+          error: null,
+          data: data || null,
+          id: job.id
+        });
+        clearTimeout(timmer);
+      }, job.delay || 0);
+    }
+  } catch (error) {
+    jobs_count = jobs_count - 1;
+    ctx.postMessage({ msg: "count", num: jobs_count });
+    ctx.postMessage({
+      iserror: true,
+      msg: "error occurred",
+      error,
+      data: null,
+      id: job.id
+    });
+  }
+}
+QueueEmitter.on("scheduled_job", scheduleJob);
+ctx.onmessage = async (msg) => {
+  let j = Json.parse(msg.data);
+  ctx.postMessage({ data: { status: "running", id: j.id, fn: j.fn.toString() } });
+  jobs_count = jobs_count + 1;
+  ctx.postMessage({ msg: "count", num: jobs_count, wrk_id: j?.wrkid });
+  QueueEmitter.emit("scheduled_job", j);
+};
+var worker_default = ctx;
+export {
+  worker_default as default
+};
+`;
+
+var blob;
+try {
+    blob = new Blob([response], {type: 'application/javascript'});
+    return  URL?.createObjectURL(blob) || new URL("./worker.js",import.meta.url);
+} catch (e) { // Backwards-compatibility
+  return  new URL("./worker.js",import.meta.url);
+ 
+}
+}
+export  function spawnWorkers(num:number,...wrks: WorkerInstance[]){
    if(num && typeof num === "number" && num <= 50 ){
     let workers = [];
     for(let i =0;i <= num;i++){
-     const worker = new Worker(new URL(`./worker.js` || "./worker.ts",import.meta.url))
+      
+     const worker = new Worker(genWorkerUrl())
        workers.push({id:crypto.randomUUID(),worker,isActive:false})
+     
     }
    workers = wrks.concat(workers)
     if(workers && workers.length > 0) return workers;
@@ -46,7 +123,7 @@ export function range(start:number, stop:number, step=1) {
 }
 
 export  function findWorkerById(id:string,workers=[]){
-    let found = workers.find((_w:WorkerInstance) => _w.id === id);
+    let found = workers.find((_w:WorkerInstance) => _w?.id === id);
     if(!found)return null;
     return found
 }
@@ -54,7 +131,7 @@ export  function findWorkerById(id:string,workers=[]){
 export function changeWorkerState(id:string,workers:[]=[]){
  let found = findWorkerById(id,workers);
  if(found){
-  let filtered = workers.filter((_w:WorkerInstance) => _w.id !== id);
+  let filtered = workers.filter((_w:WorkerInstance) => _w?.id !== id);
    found.isActive = true;
   filtered.push(found)
    return filtered
@@ -81,7 +158,7 @@ function scheduleJob(wrk: WorkerInstance,jobs:Job[]){
  */
  async function onJobs(jobs: Map,workers: any[] | undefined){ 
            jobs = Array.from(jobs.values()).filter((j:Job)=>j.status === "stopped");
-         let free_Worker =  workers?.filter((w: { isActive: boolean; })=>w.isActive === false)
+         let free_Worker =  workers?.filter((w: { isActive: boolean; })=>w?.isActive === false)
          let range_by  = Math.floor((free_Worker?.length / 2) + 2)
          //this makes workers recieve jobs
        let arr_in_range = await genListByRange(jobs,0,range_by);
@@ -105,28 +182,30 @@ export default class Queue{
     #jobs
     #workers: WorkerInstance[];
     #numWorkers: number;
+    #Event = new EventEmitter();
  constructor(opts: QueueOptions = {}){
   this.#jobs = new Map();
-  this.#numWorkers = (function(){
-    if(opts?.numWorkers < 4)return 4;
-    return opts.numWorkers
+  this.#numWorkers = (function():number{
+    if(Number(opts?.numWorkers) < 4)return 4;
+    return Number(opts?.numWorkers)
   })();
-  this.#workers = spawnWorkers(this.#numWorkers)
+  this.#workers = spawnWorkers(this.#numWorkers,this.#workers) || [];
 
    //add message listeners
    this.#workers?.forEach((wrk: WorkerInstance)=>{
     // worker on error
-    wrk.worker.on("error",(ev: any)=>{
-      QueueEmitter.emit("worker_error",{id:wrk.id,error:ev})
+    wrk?.worker.on("error",(ev: any)=>{
+     this.#Event.emit("worker_error",{id:wrk.id,error:ev})
       //remove dead worker on error
-      this.#workers = this.#workers?.filter((w)=>w.id !== wrk.id)
+      if(this.#workers.length > 0)
+      this.#workers = this.#workers?.filter((w) => w?.id !== wrk.id)
    }) 
     
-  wrk.worker.on("message",(ev: { iserror: any; error: any; data: { status: string; id: any; }; msg: string; })=>{
+  wrk?.worker.on("message",(ev: { iserror: any; error: any; data: { status: string; id: any; }; msg: string; })=>{
     //error custom
       if(ev?.iserror){
         //general messenger error on job
-        QueueEmitter.emit("job_error",ev)
+        this.#Event.emit("job_error",ev)
         let found:Job = this.#queuedJobs.get(ev?.id);
         if(!found)return;
         found.status = "failed"
@@ -140,7 +219,7 @@ export default class Queue{
         found.status = "running";
         this.#jobs.set(ev.data.id,found)
         this.#queuedJobs.set(found.id,found)
-        QueueEmitter.emit("job_running",found)
+        this.#Event.emit("job_running",found)
       }
        //completed job
       if(ev?.msg === "completed"){
@@ -150,7 +229,7 @@ export default class Queue{
         this.#completed_Jobs.set(ev.id,found)
         //remove from queue 
         this.#queuedJobs.delete(found.id)
-        QueueEmitter.emit("job_completed",ev)
+        this.#Event.emit("job_completed",ev)
       }
       //update worker
       if(ev?.msg === "count"){
@@ -167,7 +246,7 @@ export default class Queue{
    })
 
   // listen on jobs and emit jobs for schedule
-  QueueEmitter.on("jobs_added",data =>{onJobs(data,this.#workers)})
+  this.#Event.on("jobs_added",data =>{onJobs(data,this.#workers)})
  }
   /**
    * 
@@ -182,17 +261,28 @@ export default class Queue{
   let newjob: Job = {id:job.id || crypto.randomUUID(),fn: job.fn,status:"stopped",delay: job.delay || 0}
   if(this.#jobs.has(newjob.id))return;
   this.#jobs.set(newjob.id,{id: newjob.id,fn:newjob.fn,status:newjob.status,delay:newjob.delay})
-  //Todo: QueueEmitter.emit("jobs_added",this.#jobs)
+  this.#Event.emit("jobs_added",this.#jobs)
    return this
  }
- start(){
-  setTimeout(()=>{
-    QueueEmitter.emit("jobs_added",this.#jobs)
-    
-  },1000)
-  return this
- }
-
+ /**
+  * clears all completed jobs,to release memory
+  */
+  async clear(){
+    try {
+      this.#completed_Jobs.clear()
+      return true;
+    } catch (error) {
+      return false
+    }
+  }
+  /**
+   * try run failed jobs 
+   */
+  runFailedJobs(){
+     this.#failedJobs.forEach(j=>{
+      this.addJob(j)
+     })
+  }
  workers={
     /**
      * list all workers
@@ -201,11 +291,11 @@ export default class Queue{
      return this.#workers;
    },
    allActive:async()=>{
-    return this.#workers?.filter((_w:WorkerInstance)=> _w.isActive === true )
+    return this.#workers?.filter((_w:WorkerInstance)=> _w?.isActive === true )
    },
    onError: (cb:Function)=>{
       if(cb && typeof cb === "function"){
-         QueueEmitter.on("worker_error",cb)
+      this.#Event.on("worker_error",cb)
       }
       return this
       }
@@ -214,7 +304,7 @@ export default class Queue{
 
  onCompleted(cb:Function){
    if(cb && typeof cb === "function"){
-    QueueEmitter.on("job_completed",(job:Job)=>{
+    this.#Event.on("job_completed",(job:Job)=>{
        return cb(job)
     }) 
    }
@@ -222,7 +312,7 @@ export default class Queue{
  }
  onError(cb:Function){
   if(cb && typeof cb === "function"){
-     QueueEmitter.on("job_error",cb)
+     this.#Event.on("job_error",cb)
   }
   return this
   }
