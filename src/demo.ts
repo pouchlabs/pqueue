@@ -1,4 +1,4 @@
-import Pqueue from "./queue";
+import Pqueue from "../dist";
 
 let p = new Pqueue({numWorkers:5})
 let p2 = new Pqueue({numWorkers:3})

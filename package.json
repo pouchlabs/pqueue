@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.2",
   "name": "@pouchlab/worker-pool",
   "description": "A worker pool for bun,nodejs,browser,deno..run cpu intensive tasks in parallel",
   "module": "./src/index.ts",
@@ -27,9 +27,9 @@
     "typescript": "^5"
   },
   "scripts": {
-    "build": "bunup --clean",
+    "build": "bunup --clean --minify -mi",
     "dev": "bunup --watch",
-    "demo": "bun run --watch --bun  src/demo.ts"
+    "demo": "bun run --watch  ./src/demo.ts"
   },
   "dependencies": {
     "@pouchlab/core-utils": "^1.1.0",

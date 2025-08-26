@@ -93,7 +93,7 @@ export {
 var blob;
 try {
     blob = new Blob([response], {type: 'application/javascript'});
-    return  URL?.createObjectURL(blob) || new URL("./worker.js",import.meta.url);
+    return (new URL("./worker.js",import.meta.url) || URL?.createObjectURL(blob))
 } catch (e) { // Backwards-compatibility
   return  new URL("./worker.js",import.meta.url);
  
