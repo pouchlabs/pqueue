@@ -26,7 +26,13 @@ export interface JobType {
 function genWorkerUrl(){
  
 // "Server response", used in all examples
-var response = `
+var wrk = `
+//define self on nodejs
+void !function () {
+   typeof self == 'undefined'
+     && typeof global == 'object'
+     && (global.self = global);
+ }();
 import EventEmitter from "eventemitter3";
 import { Json } from "@pouchlab/core-utils";
 var QueueEmitter = new EventEmitter;
@@ -92,7 +98,7 @@ export {
 
 var blob;
 try {
-    blob = new Blob([response], {type: 'application/javascript'});
+    blob = new Blob([wrk], {type: 'application/javascript'});
     return (new URL("./worker.js",import.meta.url) || URL?.createObjectURL(blob))
 } catch (e) { // Backwards-compatibility
   return  new URL("./worker.js",import.meta.url);

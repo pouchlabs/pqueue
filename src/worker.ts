@@ -1,4 +1,11 @@
 // oxlint-disable no-eval
+//define self on nodejs
+void !function () {
+   typeof self == 'undefined'
+     && typeof global == 'object'
+     && (global.self = global);
+ }();
+
 import EventEmitter from "eventemitter3";
 import { Json } from "@pouchlab/core-utils";
 interface Job {
@@ -7,6 +14,8 @@ interface Job {
    status: "stopped" | "running" | "completed" | "failed",
    delay: number
 }
+
+
 const QueueEmitter = new EventEmitter();
 
 const ctx: Worker = self as any;

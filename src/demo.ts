@@ -1,4 +1,4 @@
-import Pqueue from "../dist";
+import Pqueue from "../dist/index.js";
 
 let p = new Pqueue({numWorkers:5})
 let p2 = new Pqueue({numWorkers:3})
