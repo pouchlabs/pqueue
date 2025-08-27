@@ -1,5 +1,5 @@
 {
-  "version": "2.2.0",
+  "version": "2.1.0",
   "name": "@pouchlab/worker-pool",
   "description": "A worker pool for bun,nodejs,browser,deno..run cpu intensive tasks in parallel",
   "module": "./src/index.ts",
