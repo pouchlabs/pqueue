@@ -34,8 +34,8 @@ p.addJob({id: "one2",delay:0,fn: async function (){
 //listens for failed jobs
 p.onError((e)=>console.log(e))
 
-//run failed jobs
-p.runFailedJobs()
+//on failed jobs
+p.onFailedJobs((j)=>console.log(j))
 
 //clear all completed jobs to free memory
 console.log(await p.clear())
