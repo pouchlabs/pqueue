@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.4.0",
   "name": "@pouchlab/worker-pool",
   "description": "A worker pool for bun,nodejs,browser,deno..run cpu intensive tasks in parallel",
   "module": "./src/index.ts",
@@ -20,8 +20,12 @@
     }
   },
   "devDependencies": {
+    "@antfu/utils": "^9.2.0",
     "@types/bun": "latest",
-    "bunup": "^0.8.71"
+    "bunup": "^0.8.71",
+    "esm-env": "^1.2.2",
+    "tinybench": "^5.0.1",
+    "eventemitter3": "^5.0.1"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -33,12 +37,14 @@
   },
   "dependencies": {
     "@pouchlab/core-utils": "^1.1.0",
-    "eventemitter3": "^5.0.1"
+    "@pouchlab/emitter": "^1.1.0"
+  
   },
   "repository": {
     "type": "github",
     "url": "https://github.com/pouchlabs/pqueue"
   },
   "homepage": "https://github.com/pouchlabs/pqueue/blob/main/README.md",
-  "keywords": ["worker","worker-pool","queue","parallel","async","worker-threads","bun","nodejs","deno","browser"]
+  "keywords": ["worker", "worker-pool", "queue", "parallel", "async", "worker-threads", "bun", "nodejs", "deno", "browser"],
+  "license": "MIT"
 }

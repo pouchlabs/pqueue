@@ -10,6 +10,6 @@ export default defineConfig([
 {
 	entry: 'src/worker.ts',
 	format: ['esm'],
-	name:"worker",
+	name:"worker", 
 }
 ])

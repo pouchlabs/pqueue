@@ -1,11 +1,22 @@
 // oxlint-disable
-import  Wrk from "./worker-import.ts";
-import { Json,checktype,genListByRange } from "@pouchlab/core-utils"; 
-import EventEmitter from "eventemitter3";
+import Worker from './browser.ts';
+import Wrknode from "./node.ts";
+import { Json,checktype} from "@pouchlab/core-utils"; 
+import {Pemitter} from "@pouchlab/emitter"
+import { getCores,RoundRobin } from './utils.ts';
 
+const numWorkers = getCores();
+const workers = new Map();
+const queuedJobs = new Map();
+const failedJobs = new Map();
+const completed_Jobs = new Map();
+const jobs = new Map();
+
+export var Qev = Object.assign(new Pemitter());
+ 
 
 export interface QueueOptions {
-    numWorkers?:number
+ 
 }
 export interface WorkerInstance {
   id:string,
@@ -25,22 +36,145 @@ export interface JobType {
   delay?: number
 }
 
-function spawnWorkers(num:number,...wrks: WorkerInstance[]){
-  
-   if(num && typeof num === "number" && num <= 50 ){
-    let workers = [];
-    for(let i =0;i <= num;i++){
+interface WorkerMessage{
+   iserror: any,
+    error: any,
+     data: {
+       status: string, 
+       id: string, 
+       iserror: boolean,
+       msg:string,
+       wrk_id:string
+      },
+     msg: string,
+  }
+
+
+//message handler
+function handleWorkerMessage(ev: WorkerMessage):void{
+     //error custom
+     if(ev.data?.iserror){
+      //general messenger error on job
+      Qev.emit("job_error",ev.data)
+      let found:Job = queuedJobs.get(ev.data?.id);
+      if(!found)return;
+      found.status = "failed"
+      failedJobs.set(ev?.data?.id,found)
+      Qev.emit("on_failed_job",found)
+      queuedJobs.delete(ev?.data?.id)
+    }
+    //update  status
+    if(ev?.data?.status === "running"){
+      let found:Job = jobs.get(ev?.data?.data.id);
+      if(!found)return;
+      found.status = "running";
+      jobs.set(ev?.data?.id,found)
+      queuedJobs.set(found.id,found)
+      Qev.emit("job_running",found)
+      return 
+    }
+     //completed job
+    if(ev?.data?.msg === "completed"){
       
-     const worker = new Wrk(new URL("./worker.ts",import.meta.url)) //|| new URL("./worker.js",import.meta.url))
-     
-     workers.push({id:crypto.randomUUID(),worker,isActive:false})
+      let found:Job = jobs.get(ev?.data?.id);
+      if(!found)return; 
+      found.status = "completed";
+      completed_Jobs.set(ev?.data?.id,found) 
+      //remove from queue 
+      queuedJobs.delete(found.id)
+      Qev.emit("job_completed",ev.data)
+      Qev.emit("job_completed"+ev?.data?.id,ev.data)
+      return
+    } 
+   
+    //update worker 
+    if(ev?.data?.msg === "count"){
+       let found = workers.get(ev.data.wrk_id)
+       if(found){
+        found.count = ev.data?.num;
+       }
        
     }
-   workers = wrks.concat(workers)
-    if(workers && workers.length > 0) return workers;
-    return workers
-   }
 }
+
+//handle worker error
+function handleWorkerError(error,wrk){
+  try { 
+    Qev.emit("worker_error",{id: wrk.id,error:error?.message})
+  } catch (error) {
+    //handle err
+  }
+} 
+function handleWorkerExit(code,wrk){
+  try {
+   let timmer = setTimeout(()=>{
+     workers.delete(wrk);
+     Qev.emit("worker_exit",{code,id:wrk})
+     clearTimeout(timmer)
+   },100)
+  } catch (error) {
+    //handle err
+  }
+}
+//spawn single worker 
+function spawnWorker(){
+  try {
+    let url = new URL("./worker.js" ?? "./worker.ts",import.meta.url);
+    //check for availability
+    if(Wrknode || Worker){
+    const worker = new Wrknode(url,{type:"module"}) || new Worker(url);
+    let newWorker = {
+      id:crypto.randomUUID(), //todo add own ids gens
+      worker,
+      count:0
+    }
+    worker?.addEventListener("message", handleWorkerMessage);
+    worker?.addEventListener("error",err=>{
+      handleWorkerError(err,newWorker.id)
+      handleWorkerExit(1,newWorker.id)
+    });
+    worker.addEventListener("exit",(code)=>{
+      handleWorkerExit(code,newWorker.id)
+    })
+      workers.set(newWorker.id,newWorker);
+      return worker
+    }
+  } catch (error) {
+    return null
+  }
+}
+
+function spawnWorkers(){
+  try{
+// Create and initialize workers
+for (let i = 0; i < numWorkers; i++) {
+   let url = new URL("./worker.js" ?? "./worker.ts",import.meta.url)
+  //check for availability
+  if(Wrknode || Worker){
+  const worker = new Wrknode(url,{type:"module"}) || new Worker(url);
+  let newWorker = {
+    id:crypto.randomUUID(), //todo add own ids gens
+    worker,
+    count:0
+  }
+  worker?.addEventListener("message", handleWorkerMessage);
+  worker?.addEventListener("error",err=>{
+    handleWorkerError(err,newWorker.id)
+    handleWorkerExit(1,newWorker.id)
+  });
+  worker.addEventListener("exit",(code)=>{
+    handleWorkerExit(code,newWorker.id)
+  })
+   workers.set(newWorker.id,newWorker);
+  } 
+}
+  }catch(error){
+   throw new Error("error occurred while creating workers: \n","bb")
+  }
+}
+
+//init workers
+spawnWorkers()
 
 
 export function range(start:number, stop:number, step=1) {
@@ -69,177 +203,90 @@ export function changeWorkerState(id:string,workers:[]=[]){
 }
 
 
-function scheduleJob(wrk: WorkerInstance,jobs:Job[]){
-  for(let job of jobs){
-    job.fn = job.fn;
-    job.wrkid = wrk.id
-    //post to worker
-   wrk.worker.postMessage(Json.stringify(job))
+function scheduleJob(wrk: WorkerInstance,job:Job){
+   wrk.worker.postMessage(Json.stringify({job,wrkid:wrk.id}))
    //update worker state
    wrk.isActive = true;
-
-}  
 }
 
 /**
  *  recieves jobs and schedules them
  * @param jobs 
  */
- async function onJobs(jobs: Map,workers: any[] | undefined){
-        
-          let  jobs_to_use = [...jobs.values()].filter((j:Job)=>j.status === "stopped");
-          let free_Worker =  workers?.filter((w: { isActive: boolean; })=>w?.isActive === false)
-         let range_by  = Math.floor((free_Worker?.length / 2) + 2)
-         //this makes workers recieve jobs
-       let arr_in_range = await genListByRange(jobs_to_use,0,range_by);
-        let found_sorted_workers = free_Worker?.sort().slice(0,arr_in_range.length)
-       for(let wrk in found_sorted_workers){
-        let worker: WorkerInstance = found_sorted_workers[wrk]
-        scheduleJob(worker,arr_in_range[wrk])
-       }
-   
- 
+ async function onJobs(job:Job){
+          let free_Workers =  [...workers.values()];
+          if(free_Workers && free_Workers?.length > 0){
+          let assigned_worker: WorkerInstance = new RoundRobin(free_Workers).next();
+            scheduleJob(assigned_worker,job)
+          }else{
+            if(workers.size < getCores()){
+              spawnWorker()
+            }
+            onJobs(job)
+          }
 } 
 
-async function onFailedJob(jobs: Map,workers: any[] | undefined){
-  let  jobs_to_use = [...jobs.values()].filter((j:Job)=>j.status === "failed");
-  
-  let free_Worker =  workers?.filter((w: { isActive: boolean; })=>w?.isActive === false)
- let range_by  = Math.floor((free_Worker?.length / 2) + 2)
- //this makes workers recieve jobs
-let arr_in_range = await genListByRange(jobs_to_use,0,range_by);
-
-let found_sorted_workers = free_Worker?.sort().slice(0,arr_in_range.length)
-for(let wrk in found_sorted_workers){
-let worker: WorkerInstance = found_sorted_workers[wrk]
-scheduleJob(worker,arr_in_range[wrk])
-}
-}
-   
+ // listen on jobs and emit jobs for schedule
+ Qev.once("jobs_added",(data)=>{onJobs(data.data)})
+ 
 /**
  * Queue Tasks like a boss in worker pool.
- * @param opts {object} - options to be initialize, numWorkers .
+ * @param opts {object} - options to be initialize.
  */
 export default class Queue{
-    #queuedJobs=new Map();
-    #failedJobs = new Map();
-    #completed_Jobs = new Map();
-    #jobs
-    #workers = [];
-    #numWorkers: number;
-    #Event = new EventEmitter();
- constructor(opts: QueueOptions = {}){
-  this.#jobs = new Map();
-  this.#numWorkers = (function():number{
-    if(Number(opts?.numWorkers) < 4)return 4;
-    return Number(opts?.numWorkers)
-  })();
-  //addworkers
-  this.#workers =  (function(num:number,...wrks: WorkerInstance[]){
-    if(num && typeof num === "number" && num <= 50 ){
-     let workers = [];
-     for(let i =0;i <= num;i++){
-       
-      const worker = new Wrk(new URL("./worker.js",import.meta.url)) ?? new Wrk(new URL("./worker.ts",import.meta.url))
-      
-      workers.push({id:crypto.randomUUID(),worker,isActive:false})
-        
-     }
-    workers = wrks.concat(workers)
-     if(workers && workers.length > 0) return workers;
-     return workers
-    }
- })(opts.numWorkers || 4);
-    //
-   //add message listeners
-   this.#workers?.forEach((wrk: WorkerInstance)=>{
-    // worker on error
-    wrk?.worker.on("error",(ev: any)=>{
-     this.#Event.emit("worker_error",{id:wrk.id,error:ev})
-      //remove dead worker on error
-      if(this.#workers.length > 0)
-      this.#workers = this.#workers?.filter((w) => w?.id !== wrk.id)
-   } )
-    //message
-  wrk?.worker.on("message",(ev: { iserror: any; error: any; data: { status: string; id: any; }; msg: string; })=>{
-    //error custom
-      if(ev?.iserror){
-        //general messenger error on job
-        this.#Event.emit("job_error",ev)
-        let found:Job = this.#queuedJobs.get(ev?.id);
-        if(!found)return;
-        found.status = "failed"
-        this.#failedJobs.set(ev?.id,found)
-        this.#Event.emit("on_failed_job",found)
-        this.#queuedJobs.delete(ev?.id)
-      }
-      //update  status
-      if(ev?.data?.status === "running"){
-        let found:Job = this.#jobs.get(ev.data.id);
-        if(!found)return;
-        found.status = "running";
-        this.#jobs.set(ev.data.id,found)
-        this.#queuedJobs.set(found.id,found)
-        this.#Event.emit("job_running",found)
-      }
-       //completed job
-      if(ev?.msg === "completed"){
-        let found:Job = this.#jobs.get(ev.id);
-        if(!found)return; 
-        found.status = "completed";
-        this.#completed_Jobs.set(ev.id,found)
-        //remove from queue 
-        this.#queuedJobs.delete(found.id)
-        this.#Event.emit("job_completed",ev)
-      }
-      //update worker
-      if(ev?.msg === "count"){
-          wrk.count = ev?.num;
-          if(wrk.count === 0){
-            wrk.isActive = false;
-          }else if(wrk.count >= 50){
-            wrk.isActive = true
-          }else{
-            wrk.isActive = false 
-          }
-      }
-   })
-   })
-
-  // listen on jobs and emit jobs for schedule
-  this.#Event.once("jobs_added",data =>{onJobs(data,this.#workers)})
-  //failed
-
-
- }
+  [x: string]: any;
+ constructor(opts: QueueOptions = {}){}
   /** 
-   * 
+   * schedules a single job.
    * @param job {object} - job to run.
-   * 
+   * @param cb - a callback function to listen to results.
    * @returns 
    */
- addJob(job: JobType){
+ addJob(job: JobType,cb=()=>{}){
   if(!job || checktype(job) !== checktype({})  || !job.fn || typeof job.fn !== "function" || job.delay && typeof job.delay !== "number" || job.id && typeof job.id !== "string" ){
     throw new Error("job must be a valid object && fn must be a function and is required");  
   }
   let newjob: Job = {id:job.id || crypto.randomUUID(),fn: job.fn,status:"stopped",delay: job.delay || 0}
-  if(!this.#jobs.has(newjob.id)){
-  this.#jobs.set(newjob.id,{id: newjob.id,fn:newjob.fn,status:newjob.status,delay:newjob.delay})
-  let timmer = setTimeout(()=>{
-  this.#Event.emit("jobs_added",this.#jobs)
- clearTimeout(timmer) 
-  },1)
+  if(!jobs.has(newjob.id)){
+  jobs.set(newjob.id,{id: newjob.id,fn:newjob.fn,status:newjob.status,delay:newjob.delay})
+  Qev.emit("jobs_added",newjob)
+
+let timmer = setTimeout(()=>{  
+    this._id = newjob.id;
+    if(this._id){
+      Qev.on("job_completed"+this._id, data =>{cb(data.data)})     
+    } 
+clearTimeout(timmer) 
+},2)
   return this
   }
    return this
+ }
+ /**
+  * schedules jobs in bulk.
+  * @param arr - array of jobs to schedule.
+  * @param cb 
+  */
+ addJobs(arr:JobType[],cb=()=>{}){
+   if(arr && checktype(arr) === checktype([{}])){
+    for(let job of arr){
+      if(job.fn && typeof job.fn === "function"){
+        this.addJob(job,(data)=>{
+           if(cb && typeof cb === "function"){
+            cb(data)
+           }
+        })
+      }
+    }
+   }
  }
  /**
   * clears all completed jobs and failed jobs,to release memory
   */
   async clear(){
     try {
-      this.#completed_Jobs.clear()
-      this.#failedJobs.clear()
+      completed_Jobs.clear()
+      failedJobs.clear()
       return true;
     } catch (error) {
       return false
@@ -250,8 +297,8 @@ export default class Queue{
    */
  onFailedJobs(cb:Function){
   if(cb && typeof cb === "function")
-    this.#Event.once("on_failed_job",async (j)=>{
-       return cb.call(this,j)
+    Qev.once("on_failed_job",async (j)=>{
+       return cb.call(this,j.data)
     })
     return this
   }
@@ -260,31 +307,50 @@ export default class Queue{
      * list all workers
      */
    list: async ()=> {
-     return this.#workers;
-   },
-   allActive:async()=>{
-    return this.#workers?.filter((_w:WorkerInstance)=> _w?.isActive === true )
+     return workers;
    },
    onError: (cb:Function)=>{
       if(cb && typeof cb === "function"){
-      this.#Event.on("worker_error",cb)
+      Qev.on("worker_error",res =>{cb(res.data)})
       }
       return this
+      } ,
+      /**
+       * runs when a worker exits
+       * @param cb 
+       * @returns 
+       */
+      onExit(cb: Function){
+        if(cb && typeof cb === "function"){
+          Qev.on("worker_exit",res =>{cb(res.data)})
+          }
+          return this
       }
     
  }
-
+/**
+ * Listens on all completed tasks sequentially.
+ * @param cb -callback to listen on completed jobs
+ * @returns 
+ */
  onCompleted(cb:Function){
    if(cb && typeof cb === "function"){
-    this.#Event.on("job_completed",(job:Job)=>{
-       return cb.call(this,job)
-    }) 
+    Qev.on("job_completed",async (data)=>{ 
+     if(data.type === "job_completed"){
+          cb(data.data)  
+     }
+    })
    }
    return this
  }
+ /**
+  * Listens on failed jobs.
+  * @param cb -callback for failed jobs.
+  * @returns 
+  */
  onError(cb:Function){
   if(cb && typeof cb === "function"){
-     this.#Event.on("job_error",cb)
+     Qev.on("job_error",cb)
   }
   return this
   }
